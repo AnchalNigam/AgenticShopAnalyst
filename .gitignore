@@ -1,0 +1,18 @@
+# Local configuration and generated environments
+.env
+backend/.venv/
+
+# Python generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# JavaScript dependencies and build outputs (reserved for the future frontend)
+frontend/node_modules/
+frontend/dist/
+
+# OS metadata
+.DS_Store
+*/.DS_Store
+
