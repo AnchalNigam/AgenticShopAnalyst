@@ -9,6 +9,8 @@ description = "Backend for the AgenticShop AI Business Analyst learning project"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1.0",
+    "google-genai>=2.0.0",
+    "openai>=1.50.0",
     "psycopg[binary]>=3.2,<4.0",
     "psycopg-pool>=3.2,<4.0",
     "python-dotenv>=1.0,<2.0",

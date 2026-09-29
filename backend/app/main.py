@@ -1,10 +1,16 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, status
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.db import check_db_health, close_pool, init_pool
+from app.routes.analyst import router as analyst_router
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 @asynccontextmanager
@@ -24,6 +30,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Enable CORS for local web development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register API routers
+app.include_router(analyst_router, prefix="/api/v1/analyst", tags=["analyst"])
+
+# Mount static files and serve Web UI at root
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def serve_ui() -> FileResponse:
+    """Serve the interactive AgenticShop web UI."""
+    return FileResponse(STATIC_DIR / "index.html")
+
 
 @app.get("/health", tags=["system"])
 def health_check():
@@ -37,4 +65,5 @@ def health_check():
             "database": "connected" if db_alive else "disconnected",
         },
     )
+
 
