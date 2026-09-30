@@ -7,17 +7,20 @@ import { SQLViewer } from './components/SQLViewer';
 import { DataTable } from './components/DataTable';
 import { ExecutionTimeline } from './components/ExecutionTimeline';
 import { DatabaseCatalog } from './components/DatabaseCatalog';
-import { fetchSystemOverview, submitAnalystQuery } from './services/api';
-import { AnalystQueryResponse, SystemOverviewResponse } from './types/analyst';
+import { PlanChecklist } from './components/PlanChecklist';
+import { fetchSystemOverview, submitAnalystQuery, submitAnalystV2Query } from './services/api';
+import { AnalystQueryResponse, AnalystV2QueryResponse, SystemOverviewResponse } from './types/analyst';
 import { BarChart3, Code2, Table, GitCommit, Loader2, AlertCircle } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [overview, setOverview] = useState<SystemOverviewResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStepText, setLoadingStepText] = useState('Reasoning over schema and business metrics...');
-  const [result, setResult] = useState<AnalystQueryResponse | null>(null);
+  const [v1Result, setV1Result] = useState<AnalystQueryResponse | null>(null);
+  const [v2Result, setV2Result] = useState<AnalystV2QueryResponse | null>(null);
+  const [currentMode, setCurrentMode] = useState<'v1' | 'v2'>('v2');
   const [queryDuration, setQueryDuration] = useState<string>('0.00');
-  const [activeTab, setActiveTab] = useState<'insights' | 'sql' | 'table' | 'trace'>('insights');
+  const [activeTab, setActiveTab] = useState<'insights' | 'plan' | 'sql' | 'table' | 'trace'>('insights');
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -31,42 +34,99 @@ export const App: React.FC = () => {
       });
   }, []);
 
-  const handleRunQuery = async (question: string, simulateError: boolean) => {
+  const handleRunQuery = async (question: string, simulateError: boolean, mode: 'v1' | 'v2') => {
     setIsLoading(true);
     setErrorMessage(null);
-    setLoadingStepText('Evaluating intent against Shoply schema and rules...');
+    setCurrentMode(mode);
+    setV1Result(null);
+    setV2Result(null);
+
     const startTime = performance.now();
 
-    // Cyclic loading animation messages to inform user of agent phases
-    const timer1 = setTimeout(() => {
-      setLoadingStepText('Generating read-only SQL query...');
-    }, 400);
-    const timer2 = setTimeout(() => {
-      setLoadingStepText(
-        simulateError
-          ? 'Executing tool call (Simulating Turn-1 fault injection & self-correction)...'
-          : 'Executing query against PostgreSQL connection pool...'
-      );
-    }, 900);
-    const timer3 = setTimeout(() => {
-      setLoadingStepText('Synthesizing executive business answer and formatting metrics...');
-    }, 1500);
+    if (mode === 'v2') {
+      setLoadingStepText('Planner decomposing question into atomic sub-tasks...');
+      const timer1 = setTimeout(() => {
+        setLoadingStepText('Executing sub-task SQL queries against PostgreSQL...');
+      }, 700);
+      const timer2 = setTimeout(() => {
+        setLoadingStepText('Reconciling scratchpad metrics and auditing data grain...');
+      }, 1800);
+      const timer3 = setTimeout(() => {
+        setLoadingStepText('Synthesizing verified multi-dimensional executive brief...');
+      }, 3000);
 
-    try {
-      const data = await submitAnalystQuery(question, simulateError);
-      const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-      setResult(data);
-      setQueryDuration(duration);
-      setActiveTab('insights');
-    } catch (err: any) {
-      setErrorMessage(err.message || 'An unexpected error occurred during analysis.');
-    } finally {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
-      setIsLoading(false);
+      try {
+        const data = await submitAnalystV2Query(question);
+        const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+        setV2Result(data);
+        setQueryDuration(duration);
+        setActiveTab('insights');
+      } catch (err: any) {
+        setErrorMessage(err.message || 'V2 analysis failed.');
+      } finally {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+        clearTimeout(timer3);
+        setIsLoading(false);
+      }
+    } else {
+      setLoadingStepText('Evaluating intent against Shoply schema and rules...');
+      const timer1 = setTimeout(() => {
+        setLoadingStepText('Generating read-only SQL query...');
+      }, 400);
+      const timer2 = setTimeout(() => {
+        setLoadingStepText(
+          simulateError
+            ? 'Executing tool call (Simulating Turn-1 fault injection & self-correction)...'
+            : 'Executing query against PostgreSQL connection pool...'
+        );
+      }, 900);
+      const timer3 = setTimeout(() => {
+        setLoadingStepText('Synthesizing executive business answer and formatting metrics...');
+      }, 1500);
+
+      try {
+        const data = await submitAnalystQuery(question, simulateError);
+        const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+        setV1Result(data);
+        setQueryDuration(duration);
+        setActiveTab('insights');
+      } catch (err: any) {
+        setErrorMessage(err.message || 'V1 query failed.');
+      } finally {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+        clearTimeout(timer3);
+        setIsLoading(false);
+      }
     }
   };
+
+  // Helper to extract rows for visualizations
+  const getVisualizationRows = (): Record<string, any>[] => {
+    if (v2Result) {
+      // Find the task result with the richest row data (or the most recent SQL task with rows)
+      const tasksWithRows = v2Result.task_results.filter((t) => t.query_results && t.query_results.length > 0);
+      if (tasksWithRows.length > 0) {
+        return tasksWithRows[tasksWithRows.length - 1].query_results;
+      }
+      return [];
+    }
+    return v1Result?.query_results || [];
+  };
+
+  // Helper to get SQL query string
+  const getSQLQuery = (): string | null => {
+    if (v2Result) {
+      const sqlParts = v2Result.task_results
+        .filter((t) => t.sql_query)
+        .map((t) => `-- Task #${t.task_id}: ${t.title}\n${t.sql_query}`);
+      return sqlParts.join('\n\n') || null;
+    }
+    return v1Result?.sql_query || null;
+  };
+
+  const hasResult = v2Result !== null || v1Result !== null;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100">
@@ -109,7 +169,12 @@ export const App: React.FC = () => {
                 <Loader2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-white">Agent Investigating...</h3>
+                <div className="flex items-center space-x-2">
+                  <h3 className="text-base font-semibold text-white">Agent Investigating...</h3>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    {currentMode === 'v2' ? 'V2 Plan-and-Solve' : 'V1 Reactive'}
+                  </span>
+                </div>
                 <p className="text-xs text-indigo-300 font-mono mt-0.5">{loadingStepText}</p>
               </div>
             </div>
@@ -117,18 +182,23 @@ export const App: React.FC = () => {
         )}
 
         {/* Analysis Results View */}
-        {result && !isLoading && (
+        {hasResult && !isLoading && (
           <section className="max-w-4xl mx-auto space-y-6 animate-fade-in">
             {/* Executive Summary Card */}
             <ExecutiveAnswer
-              question={result.question}
-              answer={result.answer}
+              question={v2Result?.question || v1Result?.question || ''}
+              answer={v2Result?.executive_brief || v1Result?.answer || ''}
               timingSec={queryDuration}
             />
 
+            {/* V2 Decomposed Plan Blueprint (Featured prominently if in V2 mode) */}
+            {v2Result && (
+              <PlanChecklist plan={v2Result.plan} taskResults={v2Result.task_results} />
+            )}
+
             {/* Navigation Tabs */}
             <div className="border-b border-slate-800">
-              <nav className="flex space-x-2">
+              <nav className="flex space-x-2 flex-wrap">
                 <button
                   onClick={() => setActiveTab('insights')}
                   className={`px-4 py-2.5 text-xs font-medium rounded-t-xl flex items-center space-x-2 border-b-2 transition cursor-pointer ${
@@ -150,7 +220,7 @@ export const App: React.FC = () => {
                   }`}
                 >
                   <Code2 className="w-3.5 h-3.5" />
-                  <span>Generated SQL</span>
+                  <span>Generated SQL {v2Result ? `(${v2Result.task_results.filter(t => t.sql_query).length})` : ''}</span>
                 </button>
 
                 <button
@@ -162,7 +232,7 @@ export const App: React.FC = () => {
                   }`}
                 >
                   <Table className="w-3.5 h-3.5" />
-                  <span>Data Table ({result.query_results?.length || 0})</span>
+                  <span>Data Table ({getVisualizationRows().length})</span>
                 </button>
 
                 <button
@@ -174,7 +244,9 @@ export const App: React.FC = () => {
                   }`}
                 >
                   <GitCommit className="w-3.5 h-3.5" />
-                  <span>Agent Trace ({result.execution_steps?.length || 0})</span>
+                  <span>
+                    Agent Trace ({(v2Result?.execution_steps || v1Result?.execution_steps || []).length})
+                  </span>
                 </button>
               </nav>
             </div>
@@ -182,16 +254,16 @@ export const App: React.FC = () => {
             {/* Tab Contents */}
             <div className="glass-panel p-6 rounded-2xl border border-slate-800 shadow-xl">
               {activeTab === 'insights' && (
-                <ChartVisualizer rows={result.query_results || []} />
+                <ChartVisualizer rows={getVisualizationRows()} />
               )}
               {activeTab === 'sql' && (
-                <SQLViewer sql={result.sql_query || null} />
+                <SQLViewer sql={getSQLQuery()} />
               )}
               {activeTab === 'table' && (
-                <DataTable rows={result.query_results || []} />
+                <DataTable rows={getVisualizationRows()} />
               )}
               {activeTab === 'trace' && (
-                <ExecutionTimeline steps={result.execution_steps || []} />
+                <ExecutionTimeline steps={v2Result?.execution_steps || v1Result?.execution_steps || []} />
               )}
             </div>
           </section>
@@ -207,7 +279,7 @@ export const App: React.FC = () => {
 
       {/* Footer */}
       <footer className="border-t border-slate-900 py-6 text-center text-xs text-slate-500">
-        AgenticShop V1 • Autonomous Business Analyst • Powered by PostgreSQL, Groq/GPT-120B, React & Recharts
+        AgenticShop V2 • Plan-and-Solve Autonomous Business Analyst • Powered by PostgreSQL, Groq/GPT-120B, React & Recharts
       </footer>
     </div>
   );

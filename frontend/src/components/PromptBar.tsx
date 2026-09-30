@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { ArrowRight, Loader2, Sparkles, Zap } from 'lucide-react';
+import { ArrowRight, Loader2, Sparkles, Zap, ListChecks, Cpu } from 'lucide-react';
 
 interface PromptBarProps {
-  onSubmit: (question: string, simulateError: boolean) => void;
+  onSubmit: (question: string, simulateError: boolean, mode: 'v1' | 'v2') => void;
   isLoading: boolean;
   sampleQuestions: string[];
 }
@@ -10,17 +10,25 @@ interface PromptBarProps {
 export const PromptBar: React.FC<PromptBarProps> = ({ onSubmit, isLoading, sampleQuestions }) => {
   const [question, setQuestion] = useState('');
   const [simulateError, setSimulateError] = useState(false);
+  const [mode, setMode] = useState<'v1' | 'v2'>('v2');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!question.trim() || isLoading) return;
-    onSubmit(question.trim(), simulateError);
+    onSubmit(question.trim(), simulateError, mode);
   };
 
   const handleSelectSample = (sample: string) => {
     setQuestion(sample);
-    onSubmit(sample, simulateError);
+    onSubmit(sample, simulateError, mode);
   };
+
+  const v2Samples = [
+    'Compare our revenue growth between July and August, find which category contributed most, and check if its refund rate is healthy compared to company average.',
+    'What was our revenue in August?',
+    'Which category generated the most revenue last month?',
+    'How many orders did we receive in July?',
+  ];
 
   return (
     <section className="max-w-4xl mx-auto space-y-4">
@@ -30,8 +38,40 @@ export const PromptBar: React.FC<PromptBarProps> = ({ onSubmit, isLoading, sampl
           Ask any question about Shoply's business
         </h2>
         <p className="text-sm text-slate-400 max-w-xl mx-auto">
-          The AI analyst reasons over business rules, writes safe SQL, self-heals database errors, and renders executive visualizations.
+          {mode === 'v2'
+            ? 'V2 Plan-and-Solve Agent: Decomposes complex business queries into atomic sub-tasks with scratchpad memory and metric reconciliation.'
+            : 'V1 Reactive Analyst: Generates and executes safe read-only SQL queries against PostgreSQL with self-correction.'}
         </p>
+      </div>
+
+      {/* Mode Switcher Tabs */}
+      <div className="flex items-center justify-center space-x-2">
+        <div className="bg-slate-900/90 p-1 rounded-xl border border-slate-800 flex items-center space-x-1 text-xs">
+          <button
+            type="button"
+            onClick={() => setMode('v2')}
+            className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition cursor-pointer ${
+              mode === 'v2'
+                ? 'bg-indigo-600 text-white font-medium shadow-md shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ListChecks className="w-3.5 h-3.5" />
+            <span>V2: Plan-and-Solve (Recommended)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('v1')}
+            className={`px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition cursor-pointer ${
+              mode === 'v1'
+                ? 'bg-indigo-600 text-white font-medium shadow-md shadow-indigo-600/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            <span>V1: Reactive Tool Calling</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Input Bar */}
@@ -41,7 +81,11 @@ export const PromptBar: React.FC<PromptBarProps> = ({ onSubmit, isLoading, sampl
             type="text"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="e.g. Which category generated the most revenue last month?"
+            placeholder={
+              mode === 'v2'
+                ? 'e.g. Compare revenue growth between July and August and evaluate refund health...'
+                : 'e.g. Which category generated the most revenue last month?'
+            }
             disabled={isLoading}
             className="w-full pl-5 pr-36 py-4 bg-slate-900/90 border border-slate-700/80 rounded-2xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-base shadow-2xl transition-all disabled:opacity-60"
             required
@@ -65,24 +109,26 @@ export const PromptBar: React.FC<PromptBarProps> = ({ onSubmit, isLoading, sampl
           </button>
         </div>
 
-        {/* Self-Correction Chaos Mode Toggle */}
-        <div className="flex items-center justify-between mt-3 px-2">
-          <label className="flex items-center space-x-2.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={simulateError}
-              onChange={(e) => setSimulateError(e.target.checked)}
-              className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-amber-500/30 focus:ring-offset-0 cursor-pointer accent-amber-500"
-            />
-            <span className="flex items-center space-x-1.5">
-              <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
-                <Zap className="w-3 h-3 text-amber-400" />
-                <span>Test Self-Correction</span>
+        {/* Self-Correction Chaos Mode Toggle (For V1) */}
+        {mode === 'v1' && (
+          <div className="flex items-center justify-between mt-3 px-2">
+            <label className="flex items-center space-x-2.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={simulateError}
+                onChange={(e) => setSimulateError(e.target.checked)}
+                className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-amber-500/30 focus:ring-offset-0 cursor-pointer accent-amber-500"
+              />
+              <span className="flex items-center space-x-1.5">
+                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center space-x-1">
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  <span>Test Self-Correction</span>
+                </span>
+                <span>Inject deliberate column error on Turn 1 to verify agent self-healing</span>
               </span>
-              <span>Inject deliberate column error on Turn 1 to verify agent self-healing</span>
-            </span>
-          </label>
-        </div>
+            </label>
+          </div>
+        )}
       </form>
 
       {/* Suggested Question Chips */}
@@ -91,7 +137,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({ onSubmit, isLoading, sampl
           <Sparkles className="w-3 h-3 text-indigo-400" />
           <span>Try asking:</span>
         </span>
-        {sampleQuestions.map((q, idx) => (
+        {(mode === 'v2' ? v2Samples : sampleQuestions).map((q, idx) => (
           <button
             key={idx}
             onClick={() => handleSelectSample(q)}

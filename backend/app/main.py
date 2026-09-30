@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.db import check_db_health, close_pool, init_pool
 from app.routes.analyst import router as analyst_router
+from app.routes.analyst_v2 import router as analyst_v2_router
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -25,8 +26,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="AgenticShop AI Business Analyst API",
-    version="0.1.0",
-    description="API for AgenticShop AI Business Analyst.",
+    version="0.2.0",
+    description="API for AgenticShop AI Business Analyst (V1 Reactive & V2 Plan-and-Solve).",
     lifespan=lifespan,
 )
 
@@ -41,6 +42,7 @@ app.add_middleware(
 
 # Register API routers
 app.include_router(analyst_router, prefix="/api/v1/analyst", tags=["analyst"])
+app.include_router(analyst_v2_router, prefix="/api/v2/analyst", tags=["analyst_v2"])
 
 # Mount static files and serve Web UI at root
 if STATIC_DIR.exists():

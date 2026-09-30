@@ -33,3 +33,39 @@ export interface ChartDetectionResult {
   numericKeys: string[];
   isTimeIndexed: boolean;
 }
+
+// V2 Plan-and-Solve Types
+export interface PlanTaskModel {
+  id: number;
+  title: string;
+  objective: string;
+  sql_needed: boolean;
+  expected_output_key: string;
+}
+
+export interface ExecutionPlanModel {
+  reasoning: string;
+  tasks: PlanTaskModel[];
+}
+
+export interface TaskExecutionResultModel {
+  task_id: number;
+  title: string;
+  objective: string;
+  status: string;
+  sql_query?: string | null;
+  query_results: Record<string, any>[];
+  summary: string;
+}
+
+export interface AnalystV2QueryResponse {
+  question: string;
+  plan: ExecutionPlanModel;
+  task_results: TaskExecutionResultModel[];
+  scratchpad: Record<string, any>;
+  executive_brief: string;
+  execution_steps: ExecutionStep[];
+  success: boolean;
+  error?: string | null;
+}
+

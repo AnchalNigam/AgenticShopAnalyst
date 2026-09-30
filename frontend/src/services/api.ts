@@ -1,4 +1,4 @@
-import { AnalystQueryResponse, SystemOverviewResponse } from '../types/analyst';
+import { AnalystQueryResponse, AnalystV2QueryResponse, SystemOverviewResponse } from '../types/analyst';
 
 export async function fetchSystemOverview(): Promise<SystemOverviewResponse> {
   const res = await fetch('/api/v1/analyst/overview');
@@ -30,3 +30,25 @@ export async function submitAnalystQuery(
 
   return res.json();
 }
+
+export async function submitAnalystV2Query(
+  question: string
+): Promise<AnalystV2QueryResponse> {
+  const res = await fetch('/api/v2/analyst/query', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      question,
+    }),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `V2 Query failed with status ${res.status}`);
+  }
+
+  return res.json();
+}
+
