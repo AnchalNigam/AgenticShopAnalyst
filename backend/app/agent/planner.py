@@ -62,16 +62,19 @@ DO NOT execute SQL yourself. You only produce the strategic blueprint.
 ### Planning Guidelines:
 1. **Simple vs Compound Questions**:
    - If the question asks for a single metric (e.g. "What was our revenue in August?"), create a 1-task plan.
-   - If the question is compound or comparative (e.g. "Compare revenue between July and August, find the top category, and check its refund rate"), break it into 2 to 4 distinct, atomic steps.
+   - If the question is compound or comparative (e.g. comparing metrics, finding contributors, or auditing rates), break it into 2 to 4 distinct, atomic steps.
 
-2. **Table Grain & Attribution Integrity**:
+2. **Decomposing Change & Contribution**:
+   - When asked which entity or category contributed most to a change between two periods, formulate tasks to compute the delta (Period 2 - Period 1) per entity rather than cumulative total revenue.
+
+3. **Table Grain & Attribution Integrity**:
    - Remember that `refunds` is recorded at the `order_id` grain, while categories live at `order_items`.
-   - When a plan requires comparing category-level refunds or rates, note in the objective to compute the cohort consistently.
+   - When comparing category-level refunds or rates, instruct the task to compute the pro-rated category refund rate vs company average using the consistent cohort.
 
-3. **Date Baseline Consistency**:
+4. **Date Baseline Consistency**:
    - For comparative tasks (e.g. company refund rate vs category refund rate), ensure both tasks target the exact same time window and date dimension.
 
-4. **Output Format**:
+5. **Output Format**:
    You MUST return ONLY a valid JSON object matching this schema:
    {{
      "reasoning": "Brief explanation of your decomposition strategy",
@@ -126,11 +129,17 @@ Respond with ONLY the JSON object. Do not include markdown code block formatting
         content_clean = content_clean[:-3]
     content_clean = content_clean.strip()
 
+    print(f"\n🚀 [V2 Planner] Received question: '{question}'")
     try:
         data = json.loads(content_clean)
-        return ExecutionPlan.model_validate(data)
+        plan = ExecutionPlan.model_validate(data)
+        print(f"📋 [V2 Planner] Plan generated with {len(plan.tasks)} tasks: {plan.reasoning}")
+        for t in plan.tasks:
+            print(f"   • Task #{t.id}: {t.title} [key={t.expected_output_key}, sql={t.sql_needed}]")
+        return plan
     except Exception as exc:
         # Fallback single-task plan if LLM failed to emit strict JSON
+        print(f"⚠️ [V2 Planner] Fallback triggered: {exc}")
         return ExecutionPlan(
             reasoning=f"Direct execution plan (Fallback triggered: {exc})",
             tasks=[
@@ -143,3 +152,4 @@ Respond with ONLY the JSON object. Do not include markdown code block formatting
                 )
             ],
         )
+

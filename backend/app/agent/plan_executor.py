@@ -95,13 +95,33 @@ You are executing one specific atomic sub-task from an overarching analytical pl
 
 
 def _reconcile_metrics(scratchpad: ExecutionScratchpad) -> list[str]:
-    """Audit accumulated metrics to catch data fan-out or consistency issues before synthesis."""
+    """Audit accumulated metrics to catch data fan-out, un-prorated joins, or grain mismatches."""
     audit_notes: list[str] = []
     data = scratchpad.to_dict()
 
-    # Rule: Check if any reported category refund amount exceeds total company refund
-    tot_refund = data.get("company_refund_amount") or data.get("august_refunds")
-    cat_refund = data.get("category_refund_amount") or data.get("electronics_refunds")
+    # Flatten nested lists of dicts for universal auditing
+    flattened: dict[str, Any] = {}
+    for k, v in data.items():
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            for row in v:
+                flattened.update(row)
+        elif isinstance(v, dict):
+            flattened.update(v)
+        else:
+            flattened[k] = v
+
+    # 1. Audit category refunds vs company refunds (Grain & Fan-out check)
+    tot_refund = (
+        flattened.get("total_company_refunds")
+        or flattened.get("company_refunds")
+        or flattened.get("company_refund_amount")
+        or flattened.get("august_refunds")
+    )
+    cat_refund = (
+        flattened.get("total_category_refunds")
+        or flattened.get("category_refunds")
+        or flattened.get("category_refund_amount")
+    )
 
     if tot_refund and cat_refund:
         try:
@@ -109,12 +129,13 @@ def _reconcile_metrics(scratchpad: ExecutionScratchpad) -> list[str]:
             c = float(cat_refund)
             if c > t:
                 audit_notes.append(
-                    f"Reconciliation Warning: Category refunds (₹{c:,.2f}) exceeded total company refunds (₹{t:,.2f}). Pro-rated cohort adjustment applied."
+                    f"Reconciliation Alert: Category refunds (₹{c:,.2f}) exceeded total company refunds (₹{t:,.2f}). Ensure multi-item orders are pro-rated."
                 )
         except (ValueError, TypeError):
             pass
 
     return audit_notes
+
 
 
 def execute_plan(
@@ -169,6 +190,7 @@ def execute_plan(
 
         # Formulate isolated prompt for this sub-task, carrying forward ONLY the scratchpad facts
         scratchpad_context = scratchpad.to_context_string()
+        print(f"\n⚡ [V2 Task #{task.id}] '{task.title}' - Generating SQL...")
         subtask_prompt = f"""You are executing Sub-Task #{task.id}: "{task.title}".
 
 Overall Question: "{question}"
@@ -198,8 +220,14 @@ Please write and execute the read-only SQL query needed to fulfill this specific
                 for tc in resp.tool_calls:
                     if tc.name == "execute_sql_query":
                         query = tc.args.get("query", "").strip()
+                        print(f"   Executing SQL for Task #{task.id}...")
                         tool_res = execute_sql_query(query)
                         is_ok = tool_res.get("success", False)
+
+                        if is_ok:
+                            print(f"   ✓ Task #{task.id} SQL succeeded ({tool_res.get('row_count', 0)} rows in {tool_res.get('execution_time_ms', 0)}ms)")
+                        else:
+                            print(f"   ❌ Task #{task.id} SQL error: {tool_res.get('error')}")
 
                         all_steps.append(
                             ExecutionStep(
@@ -230,17 +258,26 @@ Please write and execute the read-only SQL query needed to fulfill this specific
                 break
 
         # Summarize task findings into the scratchpad
-        summary_prompt = f"""Based on the SQL results for Sub-Task #{task.id} ("{task.title}"):
+        # If task_rows has <= 5 rows, extract factual summary deterministically to save a redundant LLM round-trip
+        if len(task_rows) <= 5 and task_rows:
+            items = []
+            for r in task_rows:
+                items.append(", ".join(f"{k}: {v}" for k, v in r.items()))
+            task_summary = f"{task.title}: " + "; ".join(items)
+        else:
+            summary_prompt = f"""Based on the SQL results for Sub-Task #{task.id} ("{task.title}"):
 Results: {json.dumps(task_rows[:10], default=str)}
 
 Provide a concise 1-2 sentence factual summary of the metric value or finding to store in the scratchpad for downstream tasks."""
 
-        summary_resp = client.chat(
-            messages=[{"role": "user", "content": summary_prompt}],
-            system_prompt="You are a precise data extractor. Return only the short factual takeaway.",
-            tools=None,
-        )
-        task_summary = summary_resp.content or f"Retrieved {len(task_rows)} rows."
+            summary_resp = client.chat(
+                messages=[{"role": "user", "content": summary_prompt}],
+                system_prompt="You are a precise data extractor. Return only the short factual takeaway.",
+                tools=None,
+            )
+            task_summary = summary_resp.content or f"Retrieved {len(task_rows)} rows."
+
+        print(f"   📝 Scratchpad updated [{task.expected_output_key}]: {task_summary}")
 
         # Store in scratchpad
         scratchpad.set(task.expected_output_key, task_rows if len(task_rows) <= 5 else task_summary)
@@ -261,7 +298,9 @@ Provide a concise 1-2 sentence factual summary of the metric value or finding to
     # Step 4: Metric Reconciliation & Sanity Check
     reconciliation_notes = _reconcile_metrics(scratchpad)
     if reconciliation_notes:
+        print(f"\n🔍 [V2 Reconciler] Audit warnings detected:")
         for r_note in reconciliation_notes:
+            print(f"   ⚠️ {r_note}")
             all_steps.append(
                 ExecutionStep(
                     step_number=len(all_steps) + 1,
@@ -272,6 +311,8 @@ Provide a concise 1-2 sentence factual summary of the metric value or finding to
                     notes=r_note,
                 )
             )
+    else:
+        print(f"\n🔍 [V2 Reconciler] All metrics cleanly reconciled.")
 
     # Step 5: Final Multi-Task Synthesis
     synthesis_context = f"""User Question: "{question}"
@@ -286,6 +327,7 @@ Reconciliation Audits:
 {json.dumps(reconciliation_notes) if reconciliation_notes else "None (All metrics reconciled cleanly)."}
 """
 
+    print(f"\n✍️ [V2 Synthesis] Generating final executive brief across {len(task_results)} tasks...")
     final_resp = client.chat(
         messages=[{"role": "user", "content": synthesis_context}],
         system_prompt=FINAL_SYNTHESIS_PROMPT,
@@ -293,6 +335,7 @@ Reconciliation Audits:
     )
 
     executive_brief = final_resp.content or "Analysis completed across all planned sub-tasks."
+    print(f"✅ [V2 Complete] Generated executive brief successfully!\n")
 
     all_steps.append(
         ExecutionStep(

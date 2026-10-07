@@ -75,7 +75,13 @@ BUSINESS_RULES_PROMPT = """## Shoply Canonical Business Definitions & Rules
    - When a user asks about "August" or "last month" in the context of Q3 performance, refer to the 2026 dataset.
 
 7. **Currency**:
-   - All amounts are in Indian Rupees (INR, ₹). Always format numbers with commas and currency symbol (e.g. ₹12,45,000.00 or ₹1,245.50).
+   - All amounts are in Indian Rupees (INR, ₹). Always format numbers with commas and currency symbol (e.g. ₹12,45,000.00 or ₹1,245.50). NEVER use dollar signs ($).
+
+8. **Table Grain & Pro-Rated Refund Attribution**:
+   - `refunds` is recorded at the `order_id` grain. It does NOT contain `product_id`.
+   - NEVER join `refunds` directly to `order_items` without grouping or pro-rating, as multi-item orders create a Cartesian explosion of duplicate refunds.
+   - When calculating category-level refunds, ALWAYS pro-rate the order refund by the category's share of order revenue: `refund_amount * (category_order_revenue / total_order_revenue)`.
+   - Maintain date consistency: compare the category refund rate against the company refund rate for the EXACT same order cohort and time period.
 """
 
 FEW_SHOT_EXAMPLES = """## Canonical Few-Shot SQL Examples
